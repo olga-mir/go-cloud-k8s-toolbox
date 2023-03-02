@@ -53,7 +53,7 @@ func main() {
 
 	// loop over all namespaces
 	for _, namespace := range namespaces.Items {
-		fmt.Printf("Namespace: %s\n", namespace.ObjectMeta.Name)
+		// fmt.Printf("Namespace: %s\n", namespace.ObjectMeta.Name)
 
 		// get a list of all deployments in the namespace
 		deployments, err := clientset.AppsV1().Deployments(namespace.ObjectMeta.Name).List(context.Background(), metav1.ListOptions{})
@@ -63,7 +63,8 @@ func main() {
 
 		// loop over all deployments in the namespace
 		for _, deployment := range deployments.Items {
-			fmt.Printf("\tDeployment: %s\n", deployment.ObjectMeta.Name)
+			// fmt.Printf("\tDeployment: %s\n", deployment.ObjectMeta.Name)
+			countMap := map[string]int{"a": 0, "b": 0, "c": 0, "unknown": 0}
 
 			// get a list of all pods in the deployment
 			pods, err := clientset.CoreV1().Pods(namespace.ObjectMeta.Name).List(context.Background(), metav1.ListOptions{LabelSelector: fmt.Sprintf("app=%s", deployment.ObjectMeta.Name)})
@@ -75,10 +76,17 @@ func main() {
 			for _, pod := range pods.Items {
 				// check if the pod is not in a failed state
 				if pod.Status.Phase != "Failed" {
-					fmt.Printf("\t\tPod: %s on node: %s and the node is in %s AZ\n", pod.ObjectMeta.Name, pod.Spec.NodeName, azNodeMap[pod.Spec.NodeName])
+					// fmt.Printf("\t\tPod: %s on node: %s and the node is in %s AZ\n", pod.ObjectMeta.Name, pod.Spec.NodeName, azNodeMap[pod.Spec.NodeName])
+					countMap[azNodeMap[pod.Spec.NodeName]] += 1
 				}
+				fmt.Printf("%s,%s,%d,%d,%d\n", namespace.GetName(), deployment.GetName(), countMap["a"], countMap["b"], countMap["unknown"])
 			}
 		}
+		// pad the string with spaces to the desired width
+		//padded := fmt.Sprintf("%-*s", width, str)
+
+		// print the padded string
+		//fmt.Println(padded)
 	}
 }
 
