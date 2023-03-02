@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"path/filepath"
 	"strings"
 
+	apps "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -44,23 +46,24 @@ func main() {
 	azNodeMap := buildAzNodeMap(nodes)
 
 	// get a list of all namespaces
-	skipNamespaces := []string{"skip-this", "and-that"}
+	// skipNamespaces := []string{"skip-this", "and-that"}
 	namespaces, err := clientset.CoreV1().Namespaces().List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		panic(err.Error())
 	}
 
 	// loop over all namespaces
-	count := 80
+	count := 1000
 	skippedDeployments := 0
+	unparsableLabels := 0
 	for _, namespace := range namespaces.Items {
 		count -= 1
 		if count == 0 {
 			break
 		}
-		if contains(skipNamespaces, namespace.ObjectMeta.Name) {
-			continue
-		}
+		//if contains(skipNamespaces, namespace.ObjectMeta.Name) {
+		//	continue
+		//}
 
 		// get a list of all deployments in the namespace
 		deployments, err := clientset.AppsV1().Deployments(namespace.ObjectMeta.Name).List(context.Background(), metav1.ListOptions{})
@@ -76,8 +79,14 @@ func main() {
 			}
 			countMap := map[string]int{}
 
-			// get a list of all pods in the deployment
-			pods, err := clientset.CoreV1().Pods(namespace.ObjectMeta.Name).List(context.Background(), metav1.ListOptions{LabelSelector: fmt.Sprintf("app=%s", deployment.ObjectMeta.Name)})
+			labelKey, label, err := parseLabels(deployment)
+
+			if err != nil {
+				unparsableLabels += 1
+				fmt.Printf("%s %s deployment app labels can't be parsed\n", namespace.ObjectMeta.Name, deployment.ObjectMeta.Name)
+				continue
+			}
+			pods, err := clientset.CoreV1().Pods(namespace.ObjectMeta.Name).List(context.Background(), metav1.ListOptions{LabelSelector: fmt.Sprintf("%s=%s", labelKey, label)})
 			if err != nil {
 				panic(err.Error())
 			}
@@ -89,17 +98,50 @@ func main() {
 					countMap[azNodeMap[pod.Spec.NodeName]] += 1
 				}
 			}
-			fmt.Printf("%s,%s,%d,%d,%d\n", namespace.GetName(), deployment.GetName(), countMap["a"], countMap["b"], countMap["c"])
-			width := 20
+
+			// fmt.Printf("%s,%s,%d,%d,%d\n", namespace.GetName(), deployment.GetName(), countMap["a"], countMap["b"], countMap["c"])
+			widthName := 50
+			widthRes := 20
 			fmt.Printf("%s%s%s%s%s\n",
-				fmt.Sprintf("%-*s", width, namespace.GetName()),
-				fmt.Sprintf("%-*s", width, deployment.GetName()),
-				fmt.Sprintf("%-*s", width, toStars(countMap["a"])),
-				fmt.Sprintf("%-*s", width, toStars(countMap["b"])),
-				fmt.Sprintf("%-*s", width, toStars(countMap["c"])))
+				fmt.Sprintf("%-*s", widthName, namespace.GetName()),
+				fmt.Sprintf("%-*s", widthName, deployment.GetName()),
+				fmt.Sprintf("%-*s", widthRes, toStars(countMap["a"])),
+				fmt.Sprintf("%-*s", widthRes, toStars(countMap["b"])),
+				fmt.Sprintf("%-*s", widthRes, toStars(countMap["c"])))
 		}
 	}
 	fmt.Printf("Skipped %d deployments with no replicas\n", skippedDeployments)
+	fmt.Printf("Skipped %d deployments with unparsable app labels\n", unparsableLabels)
+}
+
+func parseLabels(deployment apps.Deployment) (string, string, error) {
+	labelKey := "app"
+	label := deployment.ObjectMeta.Labels[labelKey]
+
+	if len(label) == 0 {
+		labelKey = "k8s-app"
+		label = deployment.ObjectMeta.Labels[labelKey]
+	}
+	if len(label) == 0 {
+		labelKey = "app.kubernetes.io/name"
+		label = deployment.ObjectMeta.Labels[labelKey]
+	}
+	if len(label) == 0 {
+		labelKey = "application"
+		label = deployment.ObjectMeta.Labels[labelKey]
+	}
+	if len(label) == 0 {
+		labelKey = "app"
+		label = deployment.Spec.Template.ObjectMeta.Labels[labelKey]
+	}
+	if len(label) == 0 {
+		labelKey = "k8s-app"
+		label = deployment.Spec.Template.ObjectMeta.Labels[labelKey]
+	}
+	if len(label) == 0 {
+		return "", "", errors.New("Unable to parse labels")
+	}
+	return labelKey, label, nil
 }
 
 func toStars(num int) string {
