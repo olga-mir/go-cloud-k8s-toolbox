@@ -12,7 +12,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
-	// "k8s.io/client-go/rest"
 )
 
 func main() {
@@ -43,17 +42,25 @@ func main() {
 	}
 
 	azNodeMap := buildAzNodeMap(nodes)
-	fmt.Printf("map %v\n", azNodeMap)
 
 	// get a list of all namespaces
+	skipNamespaces := []string{"skip-this", "and-that"}
 	namespaces, err := clientset.CoreV1().Namespaces().List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		panic(err.Error())
 	}
 
 	// loop over all namespaces
+	count := 80
+	skippedDeployments := 0
 	for _, namespace := range namespaces.Items {
-		// fmt.Printf("Namespace: %s\n", namespace.ObjectMeta.Name)
+		count -= 1
+		if count == 0 {
+			break
+		}
+		if contains(skipNamespaces, namespace.ObjectMeta.Name) {
+			continue
+		}
 
 		// get a list of all deployments in the namespace
 		deployments, err := clientset.AppsV1().Deployments(namespace.ObjectMeta.Name).List(context.Background(), metav1.ListOptions{})
@@ -63,8 +70,11 @@ func main() {
 
 		// loop over all deployments in the namespace
 		for _, deployment := range deployments.Items {
-			// fmt.Printf("\tDeployment: %s\n", deployment.ObjectMeta.Name)
-			countMap := map[string]int{"a": 0, "b": 0, "c": 0, "unknown": 0}
+			if *deployment.Spec.Replicas == 0 {
+				skippedDeployments += 1
+				continue
+			}
+			countMap := map[string]int{}
 
 			// get a list of all pods in the deployment
 			pods, err := clientset.CoreV1().Pods(namespace.ObjectMeta.Name).List(context.Background(), metav1.ListOptions{LabelSelector: fmt.Sprintf("app=%s", deployment.ObjectMeta.Name)})
@@ -76,46 +86,58 @@ func main() {
 			for _, pod := range pods.Items {
 				// check if the pod is not in a failed state
 				if pod.Status.Phase != "Failed" {
-					// fmt.Printf("\t\tPod: %s on node: %s and the node is in %s AZ\n", pod.ObjectMeta.Name, pod.Spec.NodeName, azNodeMap[pod.Spec.NodeName])
 					countMap[azNodeMap[pod.Spec.NodeName]] += 1
 				}
-				fmt.Printf("%s,%s,%d,%d,%d\n", namespace.GetName(), deployment.GetName(), countMap["a"], countMap["b"], countMap["unknown"])
 			}
+			fmt.Printf("%s,%s,%d,%d,%d\n", namespace.GetName(), deployment.GetName(), countMap["a"], countMap["b"], countMap["c"])
+			width := 20
+			fmt.Printf("%s%s%s%s%s\n",
+				fmt.Sprintf("%-*s", width, namespace.GetName()),
+				fmt.Sprintf("%-*s", width, deployment.GetName()),
+				fmt.Sprintf("%-*s", width, toStars(countMap["a"])),
+				fmt.Sprintf("%-*s", width, toStars(countMap["b"])),
+				fmt.Sprintf("%-*s", width, toStars(countMap["c"])))
 		}
-		// pad the string with spaces to the desired width
-		//padded := fmt.Sprintf("%-*s", width, str)
-
-		// print the padded string
-		//fmt.Println(padded)
 	}
+	fmt.Printf("Skipped %d deployments with no replicas\n", skippedDeployments)
+}
+
+func toStars(num int) string {
+	result := ""
+	for i := 0; i < num; i++ {
+		result += "*"
+	}
+	return result
 }
 
 func buildAzNodeMap(nodes *v1.NodeList) map[string]string {
 	// create a map to store nodes by availability zone
-	// nodeMap := make(map[string][]string)
 	nodeToAzMap := make(map[string]string)
 
 	// loop over all nodes and group them by availability zone
 	for _, node := range nodes.Items {
 		zone := getNodeZone(node)
-
-		//if _, ok := nodeMap[zone]; !ok {
-		//	nodeMap[zone] = []string{}
-		//}
-		// nodeMap[zone] = append(nodeMap[zone], node.ObjectMeta.Name)
 		nodeToAzMap[node.ObjectMeta.Name] = zone
 	}
 	return nodeToAzMap
 }
 
 // helper function to get the availability zone of a node
-
 func getNodeZone(node v1.Node) string {
-	for _, label := range node.ObjectMeta.Labels {
-		if strings.HasPrefix(label, "failure-domain.beta.kubernetes.io/zone=") {
-			return strings.TrimPrefix(label, "failure-domain.beta.kubernetes.io/zone=")
+	for key, value := range node.ObjectMeta.Labels {
+		if strings.HasPrefix(key, "topology.kubernetes.io/zone") {
+			return value[len(value)-1:]
 		}
 	}
 
 	return "unknown"
+}
+
+func contains(arr []string, value string) bool {
+	for _, a := range arr {
+		if a == value {
+			return true
+		}
+	}
+	return false
 }
