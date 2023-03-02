@@ -36,6 +36,15 @@ func main() {
 		panic(err.Error())
 	}
 
+	// get a list of all nodes
+	nodes, err := clientset.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		panic(err.Error())
+	}
+
+	azNodeMap := buildAzNodeMap(nodes)
+	fmt.Printf("map %v\n", azNodeMap)
+
 	// get a list of all namespaces
 	namespaces, err := clientset.CoreV1().Namespaces().List(context.Background(), metav1.ListOptions{})
 	if err != nil {
@@ -66,40 +75,29 @@ func main() {
 			for _, pod := range pods.Items {
 				// check if the pod is not in a failed state
 				if pod.Status.Phase != "Failed" {
-					fmt.Printf("\t\tPod: %s\n", pod.ObjectMeta.Name)
+					fmt.Printf("\t\tPod: %s on node: %s and the node is in %s AZ\n", pod.ObjectMeta.Name, pod.Spec.NodeName, azNodeMap[pod.Spec.NodeName])
 				}
 			}
 		}
 	}
+}
 
-	// get a list of all nodes
-	nodes, err := clientset.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
-	if err != nil {
-		panic(err.Error())
-	}
-
+func buildAzNodeMap(nodes *v1.NodeList) map[string]string {
 	// create a map to store nodes by availability zone
-	nodeMap := make(map[string][]string)
+	// nodeMap := make(map[string][]string)
+	nodeToAzMap := make(map[string]string)
 
 	// loop over all nodes and group them by availability zone
 	for _, node := range nodes.Items {
 		zone := getNodeZone(node)
 
-		if _, ok := nodeMap[zone]; !ok {
-			nodeMap[zone] = []string{}
-		}
-
-		nodeMap[zone] = append(nodeMap[zone], node.ObjectMeta.Name)
+		//if _, ok := nodeMap[zone]; !ok {
+		//	nodeMap[zone] = []string{}
+		//}
+		// nodeMap[zone] = append(nodeMap[zone], node.ObjectMeta.Name)
+		nodeToAzMap[node.ObjectMeta.Name] = zone
 	}
-
-	// print out the nodes by availability zone
-	for zone, nodes := range nodeMap {
-		fmt.Printf("Availability Zone: %s\n", zone)
-
-		for _, node := range nodes {
-			fmt.Printf("\tNode: %s\n", node)
-		}
-	}
+	return nodeToAzMap
 }
 
 // helper function to get the availability zone of a node
