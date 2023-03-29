@@ -8,13 +8,15 @@ import (
 	"path/filepath"
 	"strings"
 
-	apps "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/util/homedir"
 )
+
+var widthName = 50
+var widthRes = 20
 
 func main() {
 	var kubeconfig *string
@@ -64,9 +66,13 @@ func main() {
 		//if contains(skipNamespaces, namespace.ObjectMeta.Name) {
 		//	continue
 		//}
+		//if !contains(onlyNamespaces, namespace.ObjectMeta.Name) {
+		//	continue
+		//}
+		ns := namespace.ObjectMeta.Name
 
 		// get a list of all deployments in the namespace
-		deployments, err := clientset.AppsV1().Deployments(namespace.ObjectMeta.Name).List(context.Background(), metav1.ListOptions{})
+		deployments, err := clientset.AppsV1().Deployments(ns).List(context.Background(), metav1.ListOptions{})
 		if err != nil {
 			panic(err.Error())
 		}
@@ -78,15 +84,13 @@ func main() {
 				continue
 			}
 			countMap := map[string]int{}
-
-			labelKey, label, err := parseLabels(deployment)
-
+			labelKey, label, err := parseLabels(deployment.ObjectMeta.Labels, deployment.Spec.Template.ObjectMeta.Labels)
 			if err != nil {
 				unparsableLabels += 1
-				fmt.Printf("%s %s deployment app labels can't be parsed\n", namespace.ObjectMeta.Name, deployment.ObjectMeta.Name)
+				fmt.Printf("%s %s deployment app labels can't be parsed\n", ns, deployment.ObjectMeta.Name)
 				continue
 			}
-			pods, err := clientset.CoreV1().Pods(namespace.ObjectMeta.Name).List(context.Background(), metav1.ListOptions{LabelSelector: fmt.Sprintf("%s=%s", labelKey, label)})
+			pods, err := clientset.CoreV1().Pods(ns).List(context.Background(), metav1.ListOptions{LabelSelector: fmt.Sprintf("%s=%s", labelKey, label)})
 			if err != nil {
 				panic(err.Error())
 			}
@@ -99,44 +103,74 @@ func main() {
 				}
 			}
 
-			// fmt.Printf("%s,%s,%d,%d,%d\n", namespace.GetName(), deployment.GetName(), countMap["a"], countMap["b"], countMap["c"])
-			widthName := 50
-			widthRes := 20
-			fmt.Printf("%s%s%s%s%s\n",
-				fmt.Sprintf("%-*s", widthName, namespace.GetName()),
-				fmt.Sprintf("%-*s", widthName, deployment.GetName()),
-				fmt.Sprintf("%-*s", widthRes, toStars(countMap["a"])),
-				fmt.Sprintf("%-*s", widthRes, toStars(countMap["b"])),
-				fmt.Sprintf("%-*s", widthRes, toStars(countMap["c"])))
+			output(deployment.GetName(), namespace.GetName(), countMap)
+		}
+
+		statefulSets, err := clientset.AppsV1().StatefulSets(ns).List(context.Background(), metav1.ListOptions{})
+		if err != nil {
+			panic(err.Error())
+		}
+
+		for _, sts := range statefulSets.Items {
+			countMap := map[string]int{}
+			labelKey, label, err := parseLabels(sts.ObjectMeta.Labels, sts.Spec.Template.ObjectMeta.Labels)
+			if err != nil {
+				// unparsableLabels += 1
+				fmt.Printf("%s %s statefullSet app labels can't be parsed\n", namespace.ObjectMeta.Name, sts.ObjectMeta.Name)
+				continue
+			}
+
+			stsPods, err := clientset.CoreV1().Pods(namespace.ObjectMeta.Name).List(context.Background(), metav1.ListOptions{LabelSelector: fmt.Sprintf("%s=%s", labelKey, label)})
+			if err != nil {
+				panic(err.Error())
+			}
+
+			for _, pod := range stsPods.Items {
+				// check if the pod is not in a failed state
+				if pod.Status.Phase != "Failed" {
+					countMap[azNodeMap[pod.Spec.NodeName]] += 1
+				}
+			}
+			output(sts.GetName(), namespace.GetName(), countMap)
 		}
 	}
 	fmt.Printf("Skipped %d deployments with no replicas\n", skippedDeployments)
 	fmt.Printf("Skipped %d deployments with unparsable app labels\n", unparsableLabels)
 }
 
-func parseLabels(deployment apps.Deployment) (string, string, error) {
+func output(name string, namespace string, countMap map[string]int) {
+	fmt.Printf("CSV,%s,%s,%d,%d,%d\n", namespace, name, countMap["a"], countMap["b"], countMap["c"])
+	fmt.Printf("%s%s%s%s%s\n",
+		fmt.Sprintf("%-*s", widthName, namespace),
+		fmt.Sprintf("%-*s", widthName, name),
+		fmt.Sprintf("%-*s", widthRes, toStars(countMap["a"])),
+		fmt.Sprintf("%-*s", widthRes, toStars(countMap["b"])),
+		fmt.Sprintf("%-*s", widthRes, toStars(countMap["c"])))
+}
+
+func parseLabels(labels map[string]string, specLabels map[string]string) (string, string, error) {
 	labelKey := "app"
-	label := deployment.ObjectMeta.Labels[labelKey]
+	label := labels[labelKey]
 
 	if len(label) == 0 {
 		labelKey = "k8s-app"
-		label = deployment.ObjectMeta.Labels[labelKey]
+		label = labels[labelKey]
 	}
 	if len(label) == 0 {
 		labelKey = "app.kubernetes.io/name"
-		label = deployment.ObjectMeta.Labels[labelKey]
+		label = labels[labelKey]
 	}
 	if len(label) == 0 {
 		labelKey = "application"
-		label = deployment.ObjectMeta.Labels[labelKey]
+		label = labels[labelKey]
 	}
 	if len(label) == 0 {
 		labelKey = "app"
-		label = deployment.Spec.Template.ObjectMeta.Labels[labelKey]
+		label = specLabels[labelKey]
 	}
 	if len(label) == 0 {
 		labelKey = "k8s-app"
-		label = deployment.Spec.Template.ObjectMeta.Labels[labelKey]
+		label = specLabels[labelKey]
 	}
 	if len(label) == 0 {
 		return "", "", errors.New("Unable to parse labels")
