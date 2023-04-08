@@ -44,7 +44,7 @@ func workloadsSpreadByZone(outputFormat string) error {
 
 	client, err := client.NewClient("")
 	if err != nil {
-		panic(err)
+		return fmt.Errorf("failed to create k8s client: %v", err)
 	}
 	fmt.Printf("output: %s", outputFormat)
 

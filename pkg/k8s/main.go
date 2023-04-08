@@ -2,6 +2,7 @@ package k8s
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -70,7 +71,7 @@ func (c *Client) NodeToZoneMap(ctx context.Context) (map[string]string, error) {
 
 	nodeList, err := c.Clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to list nodes: %v", err)
 	}
 
 	for _, node := range nodeList.Items {
