@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/olga-mir/go-cloud-k8s-toolbox/pkg/k8s"
+	"github.com/olga-mir/go-cloud-k8s-toolbox/cmd/k8s"
 	"github.com/spf13/cobra"
 )
 

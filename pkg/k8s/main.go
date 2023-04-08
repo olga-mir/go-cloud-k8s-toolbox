@@ -2,8 +2,10 @@ package k8s
 
 import (
 	"context"
-	"fmt"
+	"strings"
 
+	appsv1 "k8s.io/api/apps/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -50,10 +52,21 @@ func (c *Client) ListNodes(ctx context.Context) ([]string, error) {
 	return nodes, nil
 }
 
-// ListNodesByZone returns a map of nodes by zone and error
-func (c *Client) ListNodesByZone(ctx context.Context) (map[string][]string, error) {
+// helper function to get the availability zone of a node
+func getNodeZone(node v1.Node) string {
+	for key, value := range node.ObjectMeta.Labels {
+		if strings.HasPrefix(key, "topology.kubernetes.io/zone") {
+			// only a lettter a, b, etc:  value[len(value)-1:]
+			return value
+		}
+	}
+	return "unknown"
+}
 
-	nodesByZone := make(map[string][]string)
+// NodeToZoneMap returns a map that maps node name to AZ it runs in
+func (c *Client) NodeToZoneMap(ctx context.Context) (map[string]string, error) {
+
+	nodeToZoneMap := make(map[string]string)
 
 	nodeList, err := c.Clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -61,10 +74,10 @@ func (c *Client) ListNodesByZone(ctx context.Context) (map[string][]string, erro
 	}
 
 	for _, node := range nodeList.Items {
-		zone := node.Labels["topology.kubernetes.io/zone"]
-		nodesByZone[zone] = append(nodesByZone[zone], node.Name)
+		nodeToZoneMap[node.ObjectMeta.Name] = getNodeZone(node)
 	}
-	return nodesByZone, nil
+
+	return nodeToZoneMap, nil
 }
 
 func (c *Client) ListNamespaces(ctx context.Context) ([]string, error) {
@@ -79,9 +92,28 @@ func (c *Client) ListNamespaces(ctx context.Context) ([]string, error) {
 	return namespaces, nil
 }
 
+func labelsToSelector(labels map[string]string) string {
+	selector := []string{}
+
+	for k, v := range labels {
+		selector = append(selector, k+"="+v)
+	}
+
+	return strings.Join(selector, ",")
+}
+
+func (c *Client) ListPodsByLabels(ctx context.Context, clientset kubernetes.Interface, ns string, labels map[string]string) (*v1.PodList, error) {
+	selector := labelsToSelector(labels)
+	podList, err := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: selector})
+	if err != nil {
+		return nil, err
+	}
+	return podList, nil
+}
+
 // for each deployment in the namespace, get the labels map which is union of metadata.labels and spec.template.metadata.labels
 // TODO - this is too specific for `pkg/k8s`. Move it to `cmd` or `internal` package
-func (c *Client) LabelsOfNonEmptyDeployments(ctx context.Context, ns string) (map[string]map[string]string, error) {
+/*func (c *Client) LabelsOfNonEmptyDeployments(ctx context.Context, ns string) (map[string]map[string]string, error) {
 	result := map[string]map[string]string{}
 
 	deployments, err := c.Clientset.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
@@ -89,16 +121,31 @@ func (c *Client) LabelsOfNonEmptyDeployments(ctx context.Context, ns string) (ma
 		return nil, err
 	}
 	for _, deployment := range deployments.Items {
-		l1 := deployment.ObjectMeta.Labels
-		l2 := deployment.Spec.Template.ObjectMeta.Labels
-
+		// l1 := deployment.ObjectMeta.Labels
+		// l2 := deployment.Spec.Template.ObjectMeta.Labels
 		// merge the two maps
-		for k, v := range l2 {
-			l1[k] = v
-		}
-		result[deployment.ObjectMeta.Name] = l1
+		//for k, v := range l2 {
+		//	l1[k] = v
+		//}
+		// result[deployment.ObjectMeta.Name] = l1
 
-		fmt.Printf("deployment: %s, labels: %v and %v", deployment.Name, l1, l2)
+		// probably it is possible to drop all of the label parsing code from original implementaion and
+		// just use the labels from the deployment.Spec.Template.ObjectMeta.Labels.
+		result[deployment.ObjectMeta.Name] = deployment.Spec.Template.ObjectMeta.Labels
+
+		// fmt.Printf("deployment: %s, labels: %v and %v", deployment.Name, l1, l2)
 	}
 	return result, nil
+}
+*/
+
+// return list of deployments with non-zero replicas
+
+// gererate function that returns a list of v1.Deployment objects
+func (c *Client) ListDeployments(ctx context.Context, ns string) (*appsv1.DeploymentList, error) {
+	deployments, err := c.Clientset.AppsV1().Deployments(ns).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return deployments, nil
 }
