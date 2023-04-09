@@ -103,9 +103,10 @@ func labelsToSelector(labels map[string]string) string {
 	return strings.Join(selector, ",")
 }
 
-func (c *Client) ListPodsByLabels(ctx context.Context, clientset kubernetes.Interface, ns string, labels map[string]string) (*v1.PodList, error) {
+// ListPodsByLabels returns a list of pods that match set of labels provided in the map
+func (c *Client) ListPodsByLabels(ctx context.Context, ns string, labels map[string]string) (*v1.PodList, error) {
 	selector := labelsToSelector(labels)
-	podList, err := clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: selector})
+	podList, err := c.Clientset.CoreV1().Pods(ns).List(ctx, metav1.ListOptions{LabelSelector: selector})
 	if err != nil {
 		return nil, err
 	}
