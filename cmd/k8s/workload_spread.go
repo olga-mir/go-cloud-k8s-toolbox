@@ -18,18 +18,18 @@ type Cmd struct {
 	ctx    context.Context
 }
 
-func NewCmdWorkloadSpread(ctx context.Context) *cobra.Command {
+func newCmdWorkloadSpread() *cobra.Command {
 
-	validArgs := []string{"spread-by-zone", "output"}
+	validArgs := []string{}
 	var c *Cmd
 
 	cmdWorkloadSpread := &cobra.Command{
-		Use:   fmt.Sprintf("k8s [flags] %s", validArgs),
-		Short: "Aux tools to work with k8s",
-		Long:  `TBD`,
+		Use:   "spread-by-zone", // fmt.Sprintf("spread-by-zone [flags] %s", validArgs),
+		Short: "Spread workloads by zone",
+		Long:  `TBD - spread by zone (long description TODO))`,
 
-		ValidArgs: validArgs,
-		Args:      cobra.MatchAll(),
+		/// ValidArgs: validArgs,
+		Args: cobra.MatchAll(),
 		PreRunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
 				return fmt.Errorf("missing subcommand, valid subcommands are: %s", validArgs)
@@ -45,13 +45,15 @@ func NewCmdWorkloadSpread(ctx context.Context) *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("failed to create k8s client: %v", err)
 			}
-			c = NewCmd(*client) // TODO - what's the Go way for all of this?
+			c = newCmd(*client)
 			return nil
 		},
 
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// TODO - flags parsing it not working (needs another level of cmd.AddCommand)
 			var outputFormat string
 			cmd.Flags().StringVar(&outputFormat, "output", "", "output format (csv or text), when not specified, output is printed to stdout")
+			fmt.Printf("outputFormat: %s, args: %s", outputFormat, args)
 			if err := c.workloadsSpreadByZone(outputFormat); err != nil {
 				return err
 			}
@@ -62,7 +64,7 @@ func NewCmdWorkloadSpread(ctx context.Context) *cobra.Command {
 	return cmdWorkloadSpread
 }
 
-func NewCmd(client client.Client) *Cmd {
+func newCmd(client client.Client) *Cmd {
 	return &Cmd{
 		client: client,
 		ctx:    context.Background(),

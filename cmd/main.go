@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/olga-mir/go-cloud-k8s-toolbox/cmd/k8s"
@@ -19,14 +18,7 @@ var rootCmd = &cobra.Command{
 }
 
 func main() {
-	ctx := context.Background()
 	rootCmd.PersistentFlags().String("config", "", "config file (default is $HOME/.toolbox.yaml)")
-
-	rootCmd.AddCommand(k8s.NewCmdWorkloadSpread(ctx))
+	rootCmd.AddCommand(k8s.NewK8sCmd())
 	rootCmd.Execute()
 }
-
-// Execute runs the root command.
-//func Execute() error {
-//	return rootCmd.Execute()
-//}
