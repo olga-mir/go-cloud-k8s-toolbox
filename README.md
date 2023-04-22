@@ -16,7 +16,7 @@ Once you have these prerequisites, you can clone this repository and build the t
 
 Container image currently is not provided. To build this project run:
 ```bash
-$ go build -o toolbox cmd/...
+$ make install
 ```
 
 ## Detailed description

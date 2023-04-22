@@ -5,70 +5,65 @@ import (
 	"encoding/csv"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/spf13/cobra"
-	"k8s.io/client-go/util/homedir"
-
-	client "github.com/olga-mir/go-cloud-k8s-toolbox/pkg/k8s"
 )
 
-type Cmd struct {
-	client client.Client
-	ctx    context.Context
-}
-
 func newCmdWorkloadSpread() *cobra.Command {
-
-	validArgs := []string{}
-	var c *Cmd
-
+	var outputFormat string
 	cmdWorkloadSpread := &cobra.Command{
-		Use:   "spread-by-zone", // fmt.Sprintf("spread-by-zone [flags] %s", validArgs),
-		Short: "Spread workloads by zone",
-		Long:  `TBD - spread by zone (long description TODO))`,
+		Use:        "spread-by-zone",
+		Aliases:    []string{},
+		SuggestFor: []string{},
 
-		/// ValidArgs: validArgs,
-		Args: cobra.MatchAll(),
+		Short:   "Spread workloads by zone",
+		GroupID: "",
+		Long:    `TBD - spread by zone (long description TODO))`,
+		Example: "",
+		//ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+		//},
+		Args:                   cobra.MatchAll(),
+		ArgAliases:             []string{},
+		BashCompletionFunction: "",
+		Deprecated:             "",
+		Annotations:            map[string]string{},
+		Version:                "",
+		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		},
+		PreRun: func(cmd *cobra.Command, args []string) {
+		},
 		PreRunE: func(cmd *cobra.Command, args []string) error {
-			if len(args) == 0 {
-				return fmt.Errorf("missing subcommand, valid subcommands are: %s", validArgs)
-			}
-			var kubeconfig string
-			cmd.Flags().StringVar(&kubeconfig, "kubeconfig", "", "path to kubeconfig file")
-			if kubeconfig == "" {
-				if home := homedir.HomeDir(); home != "" {
-					kubeconfig = filepath.Join(home, ".kube", "config")
-				}
-			}
-			client, err := client.NewClient(kubeconfig)
-			if err != nil {
-				return fmt.Errorf("failed to create k8s client: %v", err)
-			}
-			c = newCmd(*client)
 			return nil
 		},
 
+		Run: func(cmd *cobra.Command, args []string) {
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// TODO - flags parsing it not working (needs another level of cmd.AddCommand)
-			var outputFormat string
-			cmd.Flags().StringVar(&outputFormat, "output", "", "output format (csv or text), when not specified, output is printed to stdout")
-			fmt.Printf("outputFormat: %s, args: %s", outputFormat, args)
-			if err := c.workloadsSpreadByZone(outputFormat); err != nil {
+			if err := workloadsSpreadByZone(outputFormat); err != nil {
 				return err
 			}
 			return nil
 		},
+		PostRun: func(cmd *cobra.Command, args []string) {
+		},
+		PersistentPostRun: func(cmd *cobra.Command, args []string) {
+		},
+		FParseErrWhitelist:         cobra.FParseErrWhitelist{},
+		CompletionOptions:          cobra.CompletionOptions{},
+		TraverseChildren:           false,
+		Hidden:                     false,
+		SilenceErrors:              false,
+		SilenceUsage:               false,
+		DisableFlagParsing:         false,
+		DisableAutoGenTag:          false,
+		DisableFlagsInUseLine:      false,
+		DisableSuggestions:         false,
+		SuggestionsMinimumDistance: 0,
 	}
+
+	cmdWorkloadSpread.Flags().StringVar(&outputFormat, "output", "", "output format (csv or text), when not specified, output is printed to stdout")
 
 	return cmdWorkloadSpread
-}
-
-func newCmd(client client.Client) *Cmd {
-	return &Cmd{
-		client: client,
-		ctx:    context.Background(),
-	}
 }
 
 type PodsSpreadResult struct {
@@ -77,14 +72,14 @@ type PodsSpreadResult struct {
 	countMap       map[string]int
 }
 
-func (c *Cmd) workloadsSpreadByZone(outputFormat string) error {
-
-	nodesByZone, err := c.client.NodeToZoneMap(c.ctx)
+func workloadsSpreadByZone(outputFormat string) error {
+	ctx := context.Background()
+	nodesByZone, err := k8sClient.NodeToZoneMap(ctx)
 	if err != nil {
 		return err
 	}
 
-	namespaces, err := c.client.ListNamespaces(c.ctx)
+	namespaces, err := k8sClient.ListNamespaces(ctx)
 	if err != nil {
 		return err
 	}
@@ -98,7 +93,7 @@ func (c *Cmd) workloadsSpreadByZone(outputFormat string) error {
 	// parse deployments and statefulsets by the namespace.
 	// TODO - reduce number of calls by listing all deployments and statefulsets in one (paged) call
 	for _, namespace := range namespaces {
-		deploymentList, err := c.client.ListDeployments(c.ctx, namespace)
+		deploymentList, err := k8sClient.ListDeployments(ctx, namespace)
 		if err != nil || deploymentList == nil {
 			return err
 		}
@@ -109,7 +104,7 @@ func (c *Cmd) workloadsSpreadByZone(outputFormat string) error {
 			}
 
 			countMap := map[string]int{}
-			podList, err := c.client.ListPodsByLabels(c.ctx, namespace, deployment.Spec.Selector.MatchLabels)
+			podList, err := k8sClient.ListPodsByLabels(ctx, namespace, deployment.Spec.Selector.MatchLabels)
 			if err != nil {
 				return err
 			}
@@ -144,7 +139,7 @@ func output(outputFormat string, result []PodsSpreadResult, uniqueZones map[stri
 
 	// get all the keys from the map
 	allZones := make([]string, len(uniqueZones))
-	i := 0 // this approach is a bit more efficient than using append
+	i := 0
 	for k := range uniqueZones {
 		allZones[i] = k
 		i++

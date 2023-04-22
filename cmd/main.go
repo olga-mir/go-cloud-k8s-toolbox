@@ -10,7 +10,7 @@ import (
 var rootCmd = &cobra.Command{
 	Use:   "go-cloud-k8s-toolbox",
 	Short: "Helper funtions to work with cloud and/or kubernetes. Your one-liners and bash scripts but better",
-	Long:  `TBD`,
+	Long:  ``,
 
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("Running root command")
