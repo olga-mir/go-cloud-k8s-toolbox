@@ -53,5 +53,6 @@ func NewK8sCmd() *cobra.Command {
 
 	cmd.AddCommand(newCmdWorkloadSpread())
 	cmd.AddCommand(newCmdBlockingPDBs())
+	cmd.AddCommand(newCmdRBACComposer())
 	return cmd
 }
