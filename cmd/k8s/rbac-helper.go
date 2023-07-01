@@ -17,12 +17,11 @@ func newCmdRBACComposer() *cobra.Command {
 		Aliases:    []string{},
 		SuggestFor: []string{},
 
-		Short:   "Create RBAC objects",
+		Short:   "Create guest admin ClusterRole such that this role will allow all actions on the cluster except access to secrets, edit permissions on RBAC objects and pods/exec",
 		GroupID: "",
-		Long:    ``,
-		Example: "",
-		//ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		//},
+		Long: `This command accepts output of 'kubectl api-resources' and generates ClusterRole which allows everything except some sensitive operations
+		There are some very important limitations`,
+		Example:                "",
 		Args:                   cobra.MatchAll(),
 		ArgAliases:             []string{},
 		BashCompletionFunction: "",
@@ -85,6 +84,19 @@ type RoleRule struct {
 }
 
 func RBACCompose() error {
+	// short/long fields on Cobra will only appear on --help.
+	// Printing this message here for additional visibility
+	message := `Create guest admin ClusterRole such that this role will allow all actions on the cluster except access to secrets, edit permissions on RBAC objects and pods/exec
+This command has some very IMPORTANT LIMITATIONS:
+Currently this command disables write operations on RBAC, removes 'pods/exec' and removes all operations on 'secrets'. It allows full access on configmaps.
+It is possible that other objects can contain sensitive information, e.g. third party CRDs. This can't be solved generically and currently this script doesn't allow to specify these resources dynamically.
+
+This script accepts file api-resources.txt which is output of 'kubectl api-resources'
+'shortname' columns must be removed manually from this output and the first resource needs to be 'core' (to be improved in the future)
+	`
+
+	fmt.Printf("%s\n\n\n", message)
+
 	// input file is output of kubectl api-resources but with the first line removed and
 	// removed the SHORTNAMES column manually
 	file, err := os.Open("api-resources.txt")
