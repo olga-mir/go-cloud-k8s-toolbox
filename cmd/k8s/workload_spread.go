@@ -39,7 +39,7 @@ func newCmdWorkloadSpread() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := workloadsSpreadByZone(outputFormat); err != nil {
+			if err := workloadsSpreadByZoneHandler(outputFormat); err != nil {
 				return err
 			}
 			return nil
@@ -72,16 +72,25 @@ type PodsSpreadResult struct {
 	countMap       map[string]int
 }
 
-func workloadsSpreadByZone(outputFormat string) error {
+func workloadsSpreadByZoneHandler(outputFormat string) error {
 	ctx := context.Background()
-	nodesByZone, err := k8sClient.NodeToZoneMap(ctx)
+	result, uniqueZones, err := workloadsSpreadByZone(ctx)
 	if err != nil {
 		return err
 	}
+	output(outputFormat, result, uniqueZones)
+	return nil
+}
 
+// parse pods by zones and save result in a struct
+func workloadsSpreadByZone(ctx context.Context) ([]PodsSpreadResult, map[string]int, error) {
+	nodesByZone, err := k8sClient.NodeToZoneMap(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
 	namespaces, err := k8sClient.ListNamespaces(ctx)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 
 	// final counts of pods per zone by namespace and controller (deployment or statefulset)
@@ -91,11 +100,10 @@ func workloadsSpreadByZone(outputFormat string) error {
 	uniqueZones := map[string]int{}
 
 	// parse deployments and statefulsets by the namespace.
-	// TODO - reduce number of calls by listing all deployments and statefulsets in one (paged) call
 	for _, namespace := range namespaces {
 		deploymentList, err := k8sClient.ListDeployments(ctx, namespace)
 		if err != nil || deploymentList == nil {
-			return err
+			return nil, nil, err
 		}
 
 		for _, deployment := range deploymentList.Items {
@@ -106,7 +114,7 @@ func workloadsSpreadByZone(outputFormat string) error {
 			countMap := map[string]int{}
 			podList, err := k8sClient.ListPodsByLabels(ctx, namespace, deployment.Spec.Selector.MatchLabels)
 			if err != nil {
-				return err
+				return nil, nil, err
 			}
 			for _, pod := range podList.Items {
 				if pod.Status.Phase != "Failed" {
@@ -123,19 +131,25 @@ func workloadsSpreadByZone(outputFormat string) error {
 		}
 		// TODO - the same for statefulsets
 	}
-	output(outputFormat, result, uniqueZones)
-
-	return nil
+	return result, uniqueZones, nil
 }
 
-func output(outputFormat string, result []PodsSpreadResult, uniqueZones map[string]int) error {
+func output(outputFormat string, result []PodsSpreadResult, uniqueZones map[string]int) {
+	if outputFormat == "csv" {
+		outputCsv(result, uniqueZones)
+	} else if outputFormat == "text" {
+		outputText(result, uniqueZones)
+	}
+}
+
+func outputCsv(result []PodsSpreadResult, uniqueZones map[string]int) error {
 	file, err := os.Create("pod-spread-by-zone.csv")
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %v", err)
 	}
 	defer file.Close()
 
-	writer := csv.NewWriter(file)
+	csvWriter := csv.NewWriter(file)
 
 	// get all the keys from the map
 	allZones := make([]string, len(uniqueZones))
@@ -145,7 +159,7 @@ func output(outputFormat string, result []PodsSpreadResult, uniqueZones map[stri
 		i++
 	}
 
-	err = writer.Write(append([]string{"namespace", "controller"}, allZones...))
+	err = csvWriter.Write(append([]string{"namespace", "controller"}, allZones...))
 	if err != nil {
 		return fmt.Errorf("failed to write header to output file: %v", err)
 	}
@@ -162,12 +176,32 @@ func output(outputFormat string, result []PodsSpreadResult, uniqueZones map[stri
 			}
 		}
 
-		err := writer.Write(append([]string{line.namespace, line.controllerName}, zoneCounts...))
+		err := csvWriter.Write(append([]string{line.namespace, line.controllerName}, zoneCounts...))
 		if err != nil {
 			return fmt.Errorf("failed to write to output file: %v", err)
 		}
 	}
 
-	writer.Flush()
+	csvWriter.Flush()
 	return nil
 }
+
+func outputText(result []PodsSpreadResult, uniqueZones map[string]int) error {
+	// TODO
+	// 	fmt.Printf("CSV,%s,%s,%d,%d,%d\n", namespace, name, countMap["a"], countMap["b"], countMap["c"])
+	// 	fmt.Printf("%s%s%s%s%s\n",
+	// 		fmt.Sprintf("%-*s", widthName, namespace),
+	// 		fmt.Sprintf("%-*s", widthName, name),
+	// 		fmt.Sprintf("%-*s", widthRes, toStars(countMap["a"])),
+	// 		fmt.Sprintf("%-*s", widthRes, toStars(countMap["b"])),
+	// 		fmt.Sprintf("%-*s", widthRes, toStars(countMap["c"])))
+	return nil
+}
+
+// func toStars(num int) string {
+// result := ""
+// for i := 0; i < num; i++ {
+// result += "*"
+// }
+// return result
+// }
