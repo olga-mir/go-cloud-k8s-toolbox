@@ -14,8 +14,8 @@ func newCmdWorkloadSpread() *cobra.Command {
 	// 'csv' or 'text' for representing pods as wildcards per zone.
 	var outputFormat string
 
-	// short - if true only output workloads that have significant disbalance
-	var short bool
+	// disbalancedOnly - if true only output workloads that have significant disbalance
+	var disbalancedOnly bool
 
 	cmdWorkloadSpread := &cobra.Command{
 		Use:        "spread-by-zone",
@@ -43,7 +43,7 @@ func newCmdWorkloadSpread() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := k8sCmd.workloadsSpreadByZoneHandler(outputFormat); err != nil {
+			if err := k8sCmd.workloadsSpreadByZoneHandler(outputFormat, disbalancedOnly); err != nil {
 				return err
 			}
 			return nil
@@ -66,7 +66,7 @@ func newCmdWorkloadSpread() *cobra.Command {
 	}
 
 	cmdWorkloadSpread.Flags().StringVar(&outputFormat, "output", "", "output format (csv or text), when not specified, output is printed to stdout")
-	cmdWorkloadSpread.Flags().BoolVar(&short, "short", false, "only output workloads with uneven spread")
+	cmdWorkloadSpread.Flags().BoolVar(&disbalancedOnly, "disbalanced-only", false, "only output workloads with uneven spread")
 
 	return cmdWorkloadSpread
 }
@@ -78,20 +78,20 @@ type WorkloadSpread struct {
 }
 
 type Result struct {
-	// one line for each top level controller describing its pods spread
+	// one workload for each top level controller describing its pods spread
 	spread []WorkloadSpread
 
 	// number of zones and their names are detected dynamically and stored in this field
 	zoneNames []string
 }
 
-func (c *K8sCmd) workloadsSpreadByZoneHandler(outputFormat string) error {
+func (c *K8sCmd) workloadsSpreadByZoneHandler(outputFormat string, disbalancedOnly bool) error {
 	ctx := context.Background()
 	result, err := c.workloadsSpreadByZone(ctx)
 	if err != nil {
 		return err
 	}
-	output(outputFormat, *result)
+	output(*result, outputFormat, disbalancedOnly)
 	return nil
 }
 
@@ -175,19 +175,38 @@ func normaliseResult(result *Result) {
 
 // workload spread represents one deployment/sts pod count per zone
 // {a: 2, b: 4} etc
-//func calcDisbalance(WorkloadSpread ws) {
-//
-//}
+func isDisbalanced(ws WorkloadSpread) bool {
+	// represent spread in percent instead of pods count per zone
+	// disablanced workloads are such athat the min and max of
+	sum := 0
+	for _, pods := range ws.countMap {
+		sum += pods
+	}
+	a := map[string]int{}
+	for i, pods := range ws.countMap {
+		a[i] = 100 * (pods / sum)
+	}
+	mn, mx := 0, 0
+	for _, pc := range a {
+		if pc < mn {
+			mn = pc
+		}
+		if pc > mx {
+			mx = pc
+		}
+	}
+	return (mx-mn > 60)
+}
 
-func output(outputFormat string, result Result) {
+func output(result Result, outputFormat string, disbalancedOnly bool) {
 	if outputFormat == "csv" {
-		outputCsv(result)
+		outputCsv(result, disbalancedOnly)
 	} else if outputFormat == "text" {
-		outputText(result)
+		outputText(result, disbalancedOnly)
 	}
 }
 
-func outputCsv(result Result) error {
+func outputCsv(result Result, disbalancedOnly bool) error {
 	file, err := os.Create("pod-spread-by-zone.csv")
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %v", err)
@@ -201,17 +220,19 @@ func outputCsv(result Result) error {
 		return fmt.Errorf("failed to write header to output file: %v", err)
 	}
 
-	for _, line := range result.spread {
-		zoneCounts := []string{}
+	for _, workload := range result.spread {
+		if disbalancedOnly && isDisbalanced(workload) {
+			zoneCounts := []string{}
 
-		// assuming iteration order is stable
-		for _, zone := range result.zoneNames {
-			zoneCounts = append(zoneCounts, fmt.Sprintf("%d", line.countMap[zone]))
-		}
+			// assuming iteration order is stable
+			for _, zone := range result.zoneNames {
+				zoneCounts = append(zoneCounts, fmt.Sprintf("%d", workload.countMap[zone]))
+			}
 
-		err := csvWriter.Write(append([]string{line.namespace, line.controllerName}, zoneCounts...))
-		if err != nil {
-			return fmt.Errorf("failed to write to output file: %v", err)
+			err := csvWriter.Write(append([]string{workload.namespace, workload.controllerName}, zoneCounts...))
+			if err != nil {
+				return fmt.Errorf("failed to write to output file: %v", err)
+			}
 		}
 	}
 
@@ -219,21 +240,23 @@ func outputCsv(result Result) error {
 	return nil
 }
 
-func outputText(result Result) error {
+func outputText(result Result, disbalancedOnly bool) error {
 	// TODO - for now drop to stdout
 	var widthName = 50
 	var widthRes = 20
-	for _, line := range result.spread {
-		outputCounts := ""
+	for _, workload := range result.spread {
+		if disbalancedOnly && isDisbalanced(workload) {
+			outputCounts := ""
 
-		// assuming iteration order is stable
-		for _, zone := range result.zoneNames {
-			outputCounts = fmt.Sprintf("%-*s", widthRes, toStars(line.countMap[zone]))
+			// assuming iteration order is stable
+			for _, zone := range result.zoneNames {
+				outputCounts = fmt.Sprintf("%-*s", widthRes, toStars(workload.countMap[zone]))
 
-			fmt.Printf("%s%s%s\n",
-				fmt.Sprintf("%-*s", widthName, line.namespace),
-				fmt.Sprintf("%-*s", widthName, line.controllerName),
-				fmt.Sprintf("%-*s", widthRes, outputCounts))
+				fmt.Printf("%s%s%s\n",
+					fmt.Sprintf("%-*s", widthName, workload.namespace),
+					fmt.Sprintf("%-*s", widthName, workload.controllerName),
+					fmt.Sprintf("%-*s", widthRes, outputCounts))
+			}
 		}
 	}
 
