@@ -8,7 +8,7 @@ INSTALL = $(QUIET)install
 GO_BUILD = CGO_ENABLED=0 go build
 
 # TARGET - name of the target binary
-TARGET ?= helper
+TARGET ?= all-in-one
 
 $(TARGET): clean
 	$(GO_BUILD) -o $(TARGET) ./cmd/main.go
@@ -16,6 +16,7 @@ $(TARGET): clean
 install: $(TARGET)
 	$(INSTALL) -m 0755 -d $(BINDIR)
 	$(INSTALL) -m 0755 $(TARGET) $(BINDIR)
+	rm -f $(REPOROOT)/$(TARGET)
 
 clean:
 	rm -rf $(BINDIR)/$(TARGET)

@@ -84,7 +84,7 @@ type RoleRule struct {
 }
 
 func RBACCompose() error {
-	// short/long fields on Cobra will only appear on --help.
+	// disbalancedOnly/long fields on Cobra will only appear on --help.
 	// Printing this message here for additional visibility
 	message := `Create guest admin ClusterRole such that this role will allow all actions on the cluster except access to secrets, edit permissions on RBAC objects and pods/exec
 This command has some very IMPORTANT LIMITATIONS:
@@ -97,7 +97,7 @@ This script accepts file api-resources.txt which is output of 'kubectl api-resou
 
 	fmt.Printf("%s\n\n\n", message)
 
-	// input file is output of kubectl api-resources but with the first line removed and
+	// input file is output of kubectl api-resources but with the first workload removed and
 	// removed the SHORTNAMES column manually
 	file, err := os.Open("api-resources.txt")
 	if err != nil {
@@ -105,7 +105,7 @@ This script accepts file api-resources.txt which is output of 'kubectl api-resou
 	}
 	defer file.Close()
 
-	// Create a scanner to read the file line by line
+	// Create a scanner to read the file workload by workload
 	scanner := bufio.NewScanner(file)
 
 	// Create a new ClusterRole
@@ -122,15 +122,15 @@ This script accepts file api-resources.txt which is output of 'kubectl api-resou
 	sensitiveApiGroups := []string{"rbac.authorization.k8s.io"}
 	sensitiveCoreResources := []string{"pods", "secrets"}
 
-	prevApiGroup := "core" // TODO - assumes first line is core group
+	prevApiGroup := "core" // TODO - assumes first workload is core group
 	resources := []string{}
 	apigroup := ""
 	for scanner.Scan() {
-		// each line is from "k api-resources" but shortnames column should be removed manually from the input file
+		// each workload is from "k api-resources" but shortnames column should be removed manually from the input file
 		//  flowschemas                                    flowcontrol.apiserver.k8s.io/v1beta2   false        FlowSchema
-		line := scanner.Text()
+		workload := scanner.Text()
 
-		fields := strings.Fields(line)
+		fields := strings.Fields(workload)
 		groups := strings.Split(fields[1], "/")
 
 		if len(groups) > 1 {

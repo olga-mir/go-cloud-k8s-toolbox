@@ -9,11 +9,12 @@ import (
 	"k8s.io/client-go/util/homedir"
 )
 
-//	type K8sCmd struct {
-//		client client.Client
-//		cmd    *cobra.Command
-//	}
-var k8sClient *client.Client
+type K8sCmd struct {
+	client *client.Client
+	cmd    *cobra.Command
+}
+
+var k8sCmd K8sCmd
 
 // this function registers all the commands available at "wizardry k8s" level
 func NewK8sCmd() *cobra.Command {
@@ -22,13 +23,9 @@ func NewK8sCmd() *cobra.Command {
 		Short: "Helper functions to work with k8s clusters",
 		Long:  ``,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
-
 			return nil
 		},
 		PreRunE: func(cmd *cobra.Command, args []string) error {
-			//if len(args) == 0 {
-			//	return fmt.Errorf("missing subcommand, valid subcommands are: %s", validArgs)
-			//}
 			return nil
 		},
 		Run: func(cmd *cobra.Command, args []string) {
@@ -49,7 +46,9 @@ func NewK8sCmd() *cobra.Command {
 		fmt.Printf("failed to create k8s client: %v", err)
 		return nil
 	}
-	k8sClient = c
+
+	k8sCmd.client = c
+	k8sCmd.cmd = cmd
 
 	cmd.AddCommand(newCmdWorkloadSpread())
 	cmd.AddCommand(newCmdBlockingPDBs())
