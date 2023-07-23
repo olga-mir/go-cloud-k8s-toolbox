@@ -10,7 +10,13 @@ import (
 )
 
 func newCmdWorkloadSpread() *cobra.Command {
+
+	// 'csv' or 'text' for representing pods as wildcards per zone.
 	var outputFormat string
+
+	// short - if true only output workloads that have significant disbalance
+	var short bool
+
 	cmdWorkloadSpread := &cobra.Command{
 		Use:        "spread-by-zone",
 		Aliases:    []string{},
@@ -60,6 +66,7 @@ func newCmdWorkloadSpread() *cobra.Command {
 	}
 
 	cmdWorkloadSpread.Flags().StringVar(&outputFormat, "output", "", "output format (csv or text), when not specified, output is printed to stdout")
+	cmdWorkloadSpread.Flags().BoolVar(&short, "short", false, "only output workloads with uneven spread")
 
 	return cmdWorkloadSpread
 }
@@ -147,10 +154,30 @@ func (c *K8sCmd) workloadsSpreadByZone(ctx context.Context) (*Result, error) {
 			i++
 		}
 
+		// for each workload set zero for each zone where its pods don't exist
+		normaliseResult(&result)
+
 		// TODO - the same for statefulsets
 	}
 	return &result, nil
 }
+
+// make sure each workload has all the zones in the map with 0 if there are no pods of this workload
+func normaliseResult(result *Result) {
+	for _, workload := range result.spread {
+		for _, zone := range result.zoneNames {
+			if _, ok := workload.countMap[zone]; !ok {
+				workload.countMap[zone] = 0
+			}
+		}
+	}
+}
+
+// workload spread represents one deployment/sts pod count per zone
+// {a: 2, b: 4} etc
+//func calcDisbalance(WorkloadSpread ws) {
+//
+//}
 
 func output(outputFormat string, result Result) {
 	if outputFormat == "csv" {
@@ -179,11 +206,7 @@ func outputCsv(result Result) error {
 
 		// assuming iteration order is stable
 		for _, zone := range result.zoneNames {
-			if _, ok := line.countMap[zone]; !ok {
-				zoneCounts = append(zoneCounts, "0")
-			} else {
-				zoneCounts = append(zoneCounts, fmt.Sprintf("%d", line.countMap[zone]))
-			}
+			zoneCounts = append(zoneCounts, fmt.Sprintf("%d", line.countMap[zone]))
 		}
 
 		err := csvWriter.Write(append([]string{line.namespace, line.controllerName}, zoneCounts...))
@@ -205,11 +228,7 @@ func outputText(result Result) error {
 
 		// assuming iteration order is stable
 		for _, zone := range result.zoneNames {
-			if _, ok := line.countMap[zone]; !ok {
-				outputCounts = fmt.Sprintf("%-*s", widthRes, "") // 0, there is no pods in this zone
-			} else {
-				outputCounts = fmt.Sprintf("%-*s", widthRes, toStars(line.countMap[zone]))
-			}
+			outputCounts = fmt.Sprintf("%-*s", widthRes, toStars(line.countMap[zone]))
 
 			fmt.Printf("%s%s%s\n",
 				fmt.Sprintf("%-*s", widthName, line.namespace),
