@@ -16,12 +16,10 @@ func newCmdWorkloadSpread() *cobra.Command {
 		Aliases:    []string{},
 		SuggestFor: []string{},
 
-		Short:   "Spread workloads by zone",
-		GroupID: "",
-		Long:    `TBD - spread by zone (long description TODO))`,
-		Example: "",
-		//ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		//},
+		Short:                  "Spread workloads by zone",
+		GroupID:                "",
+		Long:                   `TBD - spread by zone (long description TODO))`,
+		Example:                "",
 		Args:                   cobra.MatchAll(),
 		ArgAliases:             []string{},
 		BashCompletionFunction: "",
@@ -66,35 +64,46 @@ func newCmdWorkloadSpread() *cobra.Command {
 	return cmdWorkloadSpread
 }
 
-type PodsSpreadResult struct {
+type WorkloadSpread struct {
 	namespace      string
 	controllerName string
 	countMap       map[string]int
 }
 
+type Result struct {
+	// one line for each top level controller describing its pods spread
+	spread []WorkloadSpread
+
+	// number of zones and their names are detected dynamically and stored in this field
+	zoneNames []string
+}
+
 func workloadsSpreadByZoneHandler(outputFormat string) error {
 	ctx := context.Background()
-	result, uniqueZones, err := workloadsSpreadByZone(ctx)
+	result, err := workloadsSpreadByZone(ctx)
 	if err != nil {
 		return err
 	}
-	output(outputFormat, result, uniqueZones)
+	output(outputFormat, *result)
 	return nil
 }
 
-// parse pods by zones and save result in a struct
-func workloadsSpreadByZone(ctx context.Context) ([]PodsSpreadResult, map[string]int, error) {
+// TODO - remove result passing around as pointer. a field on reciever instead?
+func workloadsSpreadByZone(ctx context.Context) (*Result, error) {
 	nodesByZone, err := k8sClient.NodeToZoneMap(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	namespaces, err := k8sClient.ListNamespaces(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// final counts of pods per zone by namespace and controller (deployment or statefulset)
-	result := []PodsSpreadResult{}
+	result := Result{
+		spread:    []WorkloadSpread{},
+		zoneNames: []string{},
+	}
 
 	// keep track of each zone where pods were found
 	uniqueZones := map[string]int{}
@@ -103,7 +112,7 @@ func workloadsSpreadByZone(ctx context.Context) ([]PodsSpreadResult, map[string]
 	for _, namespace := range namespaces {
 		deploymentList, err := k8sClient.ListDeployments(ctx, namespace)
 		if err != nil || deploymentList == nil {
-			return nil, nil, err
+			return nil, err
 		}
 
 		for _, deployment := range deploymentList.Items {
@@ -114,35 +123,44 @@ func workloadsSpreadByZone(ctx context.Context) ([]PodsSpreadResult, map[string]
 			countMap := map[string]int{}
 			podList, err := k8sClient.ListPodsByLabels(ctx, namespace, deployment.Spec.Selector.MatchLabels)
 			if err != nil {
-				return nil, nil, err
+				return nil, err
 			}
 			for _, pod := range podList.Items {
+				// TODO - is this needed? other values to check for?
 				if pod.Status.Phase != "Failed" {
 					zone := nodesByZone[pod.Spec.NodeName]
 					uniqueZones[zone] += 1
 					countMap[zone] += 1
 				}
 			}
-			result = append(result, PodsSpreadResult{
+			result.spread = append(result.spread, WorkloadSpread{
 				namespace:      namespace,
 				controllerName: deployment.ObjectMeta.Name,
 				countMap:       countMap,
 			})
 		}
+		// get all the keys from the map
+		result.zoneNames = make([]string, len(uniqueZones))
+		i := 0
+		for k := range uniqueZones {
+			result.zoneNames[i] = k
+			i++
+		}
+
 		// TODO - the same for statefulsets
 	}
-	return result, uniqueZones, nil
+	return &result, nil
 }
 
-func output(outputFormat string, result []PodsSpreadResult, uniqueZones map[string]int) {
+func output(outputFormat string, result Result) {
 	if outputFormat == "csv" {
-		outputCsv(result, uniqueZones)
+		outputCsv(result)
 	} else if outputFormat == "text" {
-		outputText(result, uniqueZones)
+		outputText(result)
 	}
 }
 
-func outputCsv(result []PodsSpreadResult, uniqueZones map[string]int) error {
+func outputCsv(result Result) error {
 	file, err := os.Create("pod-spread-by-zone.csv")
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %v", err)
@@ -151,24 +169,16 @@ func outputCsv(result []PodsSpreadResult, uniqueZones map[string]int) error {
 
 	csvWriter := csv.NewWriter(file)
 
-	// get all the keys from the map
-	allZones := make([]string, len(uniqueZones))
-	i := 0
-	for k := range uniqueZones {
-		allZones[i] = k
-		i++
-	}
-
-	err = csvWriter.Write(append([]string{"namespace", "controller"}, allZones...))
+	err = csvWriter.Write(append([]string{"namespace", "controller"}, result.zoneNames...))
 	if err != nil {
 		return fmt.Errorf("failed to write header to output file: %v", err)
 	}
 
-	for _, line := range result {
+	for _, line := range result.spread {
 		zoneCounts := []string{}
 
 		// assuming iteration order is stable
-		for _, zone := range allZones {
+		for _, zone := range result.zoneNames {
 			if _, ok := line.countMap[zone]; !ok {
 				zoneCounts = append(zoneCounts, "0")
 			} else {
@@ -186,22 +196,38 @@ func outputCsv(result []PodsSpreadResult, uniqueZones map[string]int) error {
 	return nil
 }
 
-func outputText(result []PodsSpreadResult, uniqueZones map[string]int) error {
-	// TODO
-	// 	fmt.Printf("CSV,%s,%s,%d,%d,%d\n", namespace, name, countMap["a"], countMap["b"], countMap["c"])
-	// 	fmt.Printf("%s%s%s%s%s\n",
-	// 		fmt.Sprintf("%-*s", widthName, namespace),
-	// 		fmt.Sprintf("%-*s", widthName, name),
-	// 		fmt.Sprintf("%-*s", widthRes, toStars(countMap["a"])),
-	// 		fmt.Sprintf("%-*s", widthRes, toStars(countMap["b"])),
-	// 		fmt.Sprintf("%-*s", widthRes, toStars(countMap["c"])))
+func outputText(result Result) error {
+	// TODO - for now drop to stdout
+	// fmt.Printf("CSV,%s,%s,%d,%d,%d\n", namespace, name, countMap["a"], countMap["b"], countMap["c"])
+	// allZones := make([]string, len(result.zoneNames))
+
+	var widthName = 50
+	var widthRes = 20
+	for _, line := range result.spread {
+		outputCounts := ""
+
+		// assuming iteration order is stable
+		for _, zone := range result.zoneNames {
+			if _, ok := line.countMap[zone]; !ok {
+				outputCounts = fmt.Sprintf("%-*s", widthRes, "") // 0, there is no pods in this zone
+			} else {
+				outputCounts = fmt.Sprintf("%-*s", widthRes, toStars(line.countMap[zone]))
+			}
+
+			fmt.Printf("%s%s%s\n",
+				fmt.Sprintf("%-*s", widthName, line.namespace),
+				fmt.Sprintf("%-*s", widthName, line.controllerName),
+				fmt.Sprintf("%-*s", widthRes, outputCounts))
+		}
+	}
+
 	return nil
 }
 
-// func toStars(num int) string {
-// result := ""
-// for i := 0; i < num; i++ {
-// result += "*"
-// }
-// return result
-// }
+func toStars(num int) string {
+	result := ""
+	for i := 0; i < num; i++ {
+		result += "*"
+	}
+	return result
+}
