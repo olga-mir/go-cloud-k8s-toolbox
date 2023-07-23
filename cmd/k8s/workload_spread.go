@@ -221,7 +221,7 @@ func outputCsv(result Result, disbalancedOnly bool) error {
 	}
 
 	for _, workload := range result.spread {
-		if disbalancedOnly && isDisbalanced(workload) {
+		if !disbalancedOnly && isDisbalanced(workload) {
 			zoneCounts := []string{}
 
 			// assuming iteration order is stable
@@ -245,18 +245,18 @@ func outputText(result Result, disbalancedOnly bool) error {
 	var widthName = 50
 	var widthRes = 20
 	for _, workload := range result.spread {
-		if disbalancedOnly && isDisbalanced(workload) {
+		if !disbalancedOnly && isDisbalanced(workload) {
 			outputCounts := ""
 
 			// assuming iteration order is stable
 			for _, zone := range result.zoneNames {
-				outputCounts = fmt.Sprintf("%-*s", widthRes, toStars(workload.countMap[zone]))
+				outputCounts += fmt.Sprintf("%-*s", widthRes, toStars(workload.countMap[zone]))
 
-				fmt.Printf("%s%s%s\n",
-					fmt.Sprintf("%-*s", widthName, workload.namespace),
-					fmt.Sprintf("%-*s", widthName, workload.controllerName),
-					fmt.Sprintf("%-*s", widthRes, outputCounts))
 			}
+			fmt.Printf("%s%s%s\n",
+				fmt.Sprintf("%-*s", widthName, workload.namespace),
+				fmt.Sprintf("%-*s", widthName, workload.controllerName),
+				fmt.Sprintf("%-*s", widthRes, outputCounts))
 		}
 	}
 

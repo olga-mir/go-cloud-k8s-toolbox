@@ -17,7 +17,7 @@ To build this project run:
 ```bash
 $ make install
 ```
-This will create binary with the default name `all-in-one` (it's just a generic tool with specific but unrelated targets and tasks) in local directory in `./bin` folder. A different name can be provided by using TARGET:
+This will create binary with the default name `busytool` (same idea as busybox) in local directory in `./bin` folder. A different name can be provided by using TARGET:
 
 ```bash
 $ TARGET=mytool make install
@@ -43,7 +43,7 @@ where `*` represents a pod in a specific zone, my-deployment has 3 pods in zone 
 To get a comma-delimited output for further parsing as a spreadsheet run `csv` output format
 
 ```
-all-in-one k8s spread-by-zone --output=csv
+busytool k8s spread-by-zone --output=csv
 ```
 
 

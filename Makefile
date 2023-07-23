@@ -8,7 +8,7 @@ INSTALL = $(QUIET)install
 GO_BUILD = CGO_ENABLED=0 go build
 
 # TARGET - name of the target binary
-TARGET ?= all-in-one
+TARGET ?= busytool
 
 $(TARGET): clean
 	$(GO_BUILD) -o $(TARGET) ./cmd/main.go
