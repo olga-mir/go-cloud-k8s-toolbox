@@ -37,7 +37,7 @@ func newCmdWorkloadSpread() *cobra.Command {
 		Run: func(cmd *cobra.Command, args []string) {
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := workloadsSpreadByZoneHandler(outputFormat); err != nil {
+			if err := k8sCmd.workloadsSpreadByZoneHandler(outputFormat); err != nil {
 				return err
 			}
 			return nil
@@ -78,9 +78,9 @@ type Result struct {
 	zoneNames []string
 }
 
-func workloadsSpreadByZoneHandler(outputFormat string) error {
+func (c *K8sCmd) workloadsSpreadByZoneHandler(outputFormat string) error {
 	ctx := context.Background()
-	result, err := workloadsSpreadByZone(ctx)
+	result, err := c.workloadsSpreadByZone(ctx)
 	if err != nil {
 		return err
 	}
@@ -89,12 +89,12 @@ func workloadsSpreadByZoneHandler(outputFormat string) error {
 }
 
 // TODO - remove result passing around as pointer. a field on reciever instead?
-func workloadsSpreadByZone(ctx context.Context) (*Result, error) {
-	nodesByZone, err := k8sClient.NodeToZoneMap(ctx)
+func (c *K8sCmd) workloadsSpreadByZone(ctx context.Context) (*Result, error) {
+	nodesByZone, err := c.client.NodeToZoneMap(ctx)
 	if err != nil {
 		return nil, err
 	}
-	namespaces, err := k8sClient.ListNamespaces(ctx)
+	namespaces, err := c.client.ListNamespaces(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +110,7 @@ func workloadsSpreadByZone(ctx context.Context) (*Result, error) {
 
 	// parse deployments and statefulsets by the namespace.
 	for _, namespace := range namespaces {
-		deploymentList, err := k8sClient.ListDeployments(ctx, namespace)
+		deploymentList, err := c.client.ListDeployments(ctx, namespace)
 		if err != nil || deploymentList == nil {
 			return nil, err
 		}
@@ -121,7 +121,7 @@ func workloadsSpreadByZone(ctx context.Context) (*Result, error) {
 			}
 
 			countMap := map[string]int{}
-			podList, err := k8sClient.ListPodsByLabels(ctx, namespace, deployment.Spec.Selector.MatchLabels)
+			podList, err := c.client.ListPodsByLabels(ctx, namespace, deployment.Spec.Selector.MatchLabels)
 			if err != nil {
 				return nil, err
 			}
@@ -198,9 +198,6 @@ func outputCsv(result Result) error {
 
 func outputText(result Result) error {
 	// TODO - for now drop to stdout
-	// fmt.Printf("CSV,%s,%s,%d,%d,%d\n", namespace, name, countMap["a"], countMap["b"], countMap["c"])
-	// allZones := make([]string, len(result.zoneNames))
-
 	var widthName = 50
 	var widthRes = 20
 	for _, line := range result.spread {
@@ -224,6 +221,7 @@ func outputText(result Result) error {
 	return nil
 }
 
+// converts a number to that number of wildcards, 3 -> `***`
 func toStars(num int) string {
 	result := ""
 	for i := 0; i < num; i++ {
